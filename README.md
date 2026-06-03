@@ -1,102 +1,83 @@
-# 📸 slides-capture
+# slides-capture
 
-A no-API, no-browser-extension Python tool for capturing every slide in a presentation as a clean, numbered screenshot. Works in two modes — drive the deck yourself, or just watch passively while someone else presents.
+Captures every slide in a presentation as a numbered screenshot — no API, no browser extension, no faff. Just Python talking to your screen.
 
----
+Works with anything you can put into fullscreen: Google Slides, PowerPoint, Keynote, LibreOffice, PDF decks.
 
 ## Supports
 
 <p align="left">
   <img src="assets/slides.png" alt="Google Slides" height="48" title="Google Slides" />
   &nbsp;&nbsp;
-  <img src="assets/powerpoint.png" alt="Microsoft PowerPoint" height="48" title="Microsoft PowerPoint" />
+  <img src="assets/powerpoint.png" alt="PowerPoint" height="48" title="Microsoft PowerPoint" />
 </p>
 
-Anything you can fullscreen on your monitor — Google Slides, PowerPoint, Keynote, LibreOffice Impress, PDF decks.
+---
+
+## How it works
+
+There are two modes depending on whether you're the one presenting or just watching.
+
+**`auto`** — The script drives the deck for you. It takes a screenshot, presses the right arrow, waits, and repeats until it detects the end of the deck (two consecutive frames that look identical). Good for exporting your own deck when you have full keyboard control.
+
+**`watch`** — You sit back and the script watches the screen. It samples the display several times per second using a perceptual hash, and the moment a real slide change happens it waits for any transition to finish and then saves a screenshot. Good for recording a live presentation or screenshare where you can't drive the slides yourself.
 
 ---
 
-## Built with Python
+## Requirements
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat&logo=python&logoColor=white)
-![pyautogui](https://img.shields.io/badge/pyautogui-screenshot%20%26%20keys-grey?style=flat)
-![Pillow](https://img.shields.io/badge/Pillow-image%20IO-grey?style=flat)
-![imagehash](https://img.shields.io/badge/imagehash-perceptual%20diff-grey?style=flat)
-![keyboard](https://img.shields.io/badge/keyboard-hotkey%20listener-grey?style=flat)
+Python 3.10 or later.
 
-No Selenium. No browser extensions. No API keys. Just Python talking directly to your screen and keyboard.
+```bash
+pip install pyautogui pillow keyboard imagehash
+```
 
----
+> **macOS** — Terminal (or whichever app you run the script from) needs Accessibility and Screen Recording permissions. Go to System Settings → Privacy & Security and enable both for your terminal app.
 
-## Modes
-
-### `auto` — You're in control
-Put the presentation into fullscreen, run the script, and it drives itself. It takes a screenshot, presses `→`, waits, repeats — and stops automatically when it detects the end of the deck via perceptual hashing.
-
-Best for: exporting your own deck when you have full keyboard control.
-
-### `watch` — Someone else is presenting
-The script polls the screen every N milliseconds with a perceptual hash. The moment it detects a real slide change (ignoring cursor movement and transition noise), it waits for the transition to settle, then fires a screenshot.
-
-Best for: recording a live presentation, screenshare, or video where you can't click through yourself.
+> **Linux** — The `keyboard` library needs elevated permissions to listen for global keypresses. Either run with `sudo`, or add yourself to the `input` group (`sudo usermod -aG input $USER`) and log out and back in.
 
 ---
 
 ## Installation
 
-**1. Clone the repo**
 ```bash
 git clone https://github.com/your-username/slides-capture.git
 cd slides-capture
-```
-
-**2. Install dependencies**
-```bash
 pip install pyautogui pillow keyboard imagehash
 ```
 
-> **Linux users:** `keyboard` requires root or a `uinput` group membership to listen for global keypresses. Run with `sudo python slides_capture.py` or [add yourself to the uinput group](https://github.com/boppreh/keyboard#linux).
-
-> **macOS users:** You'll need to grant Terminal (or your IDE) **Accessibility** and **Screen Recording** permissions under *System Settings → Privacy & Security*.
-
-**3. Copy `config.json` next to the script** (it's already there if you cloned the repo) and edit it for your session — see [Configuration](#configuration) below.
+`config.json` is already in the repo. Edit it before your first run — at minimum set `session_name` and `mode`.
 
 ---
 
-## Setup & Usage
+## Usage
 
-### Auto mode (you control the slides)
+**Auto mode**
 
-1. Open your presentation and switch to **fullscreen** (`F5` in Google Slides / PowerPoint, `⌘⇧F` in Keynote).
-2. Edit `config.json`: set `"mode": "auto"` and give your session a name.
-3. Run the script:
-   ```bash
-   python slides_capture.py
-   ```
-4. A countdown starts — click into the presentation window before it hits zero.
-5. The script takes over: screenshot → advance → repeat until the end of the deck is detected.
+1. Put your presentation into fullscreen (`F5` in Google Slides and PowerPoint, `⌘⇧F` in Keynote).
+2. Set `"mode": "auto"` in `config.json`.
+3. Run `python slides_capture.py`.
+4. You have a few seconds (configurable via `countdown`) to click into the presentation window — then the script takes over.
 
-### Watch mode (someone else is presenting)
+**Watch mode**
 
-1. Get the presentation visible and fullscreen on your screen.
-2. Edit `config.json`: set `"mode": "watch"`.
-3. Run the script:
-   ```bash
-   python slides_capture.py
-   ```
-4. The script immediately captures the first slide, then silently watches. Every time a new slide appears, it captures it.
-5. Press your `stop_key` (default `Q`) at any time to stop.
+1. Get the presentation visible and fullscreen.
+2. Set `"mode": "watch"` in `config.json`.
+3. Run `python slides_capture.py`.
+4. The script captures the first slide immediately, then monitors quietly. Every real slide change triggers a capture.
+5. Press `Q` (or your configured `stop_key`) when done.
 
-### Emergency stops
-- Press the configured `stop_key` (default `Q`) anywhere, any time — it's a background thread listener.
-- Move your mouse to the **top-left corner** of the screen — `pyautogui`'s built-in failsafe will kill the script instantly.
+**Stopping the script**
+
+- Press the `stop_key` (default `Q`) at any point — it runs in a background thread so it works even while the script is waiting.
+- Move your mouse to the top-left corner of the screen — pyautogui's failsafe will kill it immediately.
 - `Ctrl+C` in the terminal also works.
 
 ---
 
 ## Output
 
-Screenshots are saved to a timestamped folder inside `output_dir`:
+Each run creates a timestamped subfolder named after your session:
 
 ```
 slides_output/
@@ -107,13 +88,13 @@ slides_output/
     └── ...
 ```
 
-The session name comes from `"session_name"` in `config.json`. Spaces are replaced with hyphens automatically.
+The session name is whatever you set in `config.json`. Spaces become hyphens automatically.
 
 ---
 
 ## Configuration
 
-All settings live in `config.json` next to the script. No need to touch the Python file.
+Everything is in `config.json`. You never need to edit the Python file.
 
 ```json
 {
@@ -136,74 +117,62 @@ All settings live in `config.json` next to the script. No need to touch the Pyth
 }
 ```
 
-### Top-level keys
+### Top-level
 
-| Key | Type | Description |
-|---|---|---|
-| `session_name` | string | Prefix for every screenshot filename and the output folder. Use something descriptive — `"q3-board-review"`, `"onboarding-deck"`. |
-| `output_dir` | string | Root folder where session subfolders are created. Relative to the script location. |
-| `mode` | `"auto"` \| `"watch"` | Which capture mode to run. |
-| `image_format` | `"png"` \| `"jpg"` | Output image format. PNG is lossless and recommended. |
-| `stop_key` | string | Key to press anywhere to abort immediately. Any single key name recognised by the `keyboard` library (e.g. `"q"`, `"esc"`, `"f12"`). |
+| Key | Description |
+|---|---|
+| `session_name` | Prefix used for the output folder and every screenshot filename. Make it something meaningful — `"q3-review"`, `"onboarding"`. |
+| `output_dir` | Root folder for all session subfolders. Relative to the script. |
+| `mode` | `"auto"` or `"watch"`. |
+| `image_format` | `"png"` or `"jpg"`. PNG is lossless and recommended unless you need smaller files. |
+| `stop_key` | Key that aborts the script at any time. Default is `"q"`. Any key name the `keyboard` library understands works — `"esc"`, `"f12"`, etc. |
 
 ### `auto` block
 
-| Key | Type | Description |
-|---|---|---|
-| `slide_delay` | float (seconds) | How long to wait after pressing `→` before taking the next screenshot. Increase this if your slides have long animations or transitions — `0.8`–`1.5` is good for animated decks. |
-| `countdown` | int (seconds) | Time between running the script and capture starting, so you can click into the presentation window. |
-| `max_slides` | int | Safety cap. The script will also stop automatically when the end of the deck is detected, so this is a fallback. Raise it for long decks. |
+| Key | Description |
+|---|---|
+| `slide_delay` | Seconds to wait after pressing the right arrow before taking the next screenshot. `0.3` is fine for simple decks. If your slides have animations or transitions, increase this to `0.8`–`1.5` so everything finishes rendering before capture. |
+| `countdown` | Seconds between starting the script and capture beginning — time to click into the presentation window. |
+| `max_slides` | Upper limit on slides captured. The script also stops automatically when end-of-deck is detected, so this is just a safety fallback. Raise it for long decks. |
 
 ### `watch` block
 
-| Key | Type | Description |
-|---|---|---|
-| `poll_interval` | float (seconds) | How often the screen is sampled. `0.2` (5× per second) is a good balance between responsiveness and CPU use. |
-| `change_threshold` | int | Perceptual hash Hamming distance needed to trigger a capture. The scale: `0–3` = noise/cursor, `4–7` = transition frames, `8+` = definite new content. Lower = more sensitive; raise to `10–12` if you're getting false positives from animated content. |
-| `settle_delay` | float (seconds) | After detecting a change, how long to wait before saving — lets slide transitions finish so you get a clean frame. Increase to `0.6`–`1.0` for decks with slow transitions. |
-| `max_slides` | int | Upper bound on the number of slides to capture in a session. |
+| Key | Description |
+|---|---|
+| `poll_interval` | How often (in seconds) the screen is sampled. `0.2` means five times per second, which is responsive without hammering the CPU. |
+| `change_threshold` | How visually different two frames need to be to count as a new slide, measured as a perceptual hash distance. `0–3` is just noise or cursor movement. `4–7` is a transition mid-flight. `8` and above is a real slide change. If animated content is causing false captures, raise this to `10`–`12`. If fast transitions are being missed, lower it slightly. |
+| `settle_delay` | Seconds to wait after detecting a change before saving the screenshot. This lets slide transitions finish so you get a clean frame rather than a half-drawn one. Raise to `0.6`–`1.0` for slow or elaborate transitions. |
+| `max_slides` | Upper limit on slides captured in a session. |
 
 ---
 
-## Function Reference
+## Function reference
 
-| Function | Signature | Description |
-|---|---|---|
-| `load_config` | `() → dict` | Reads and parses `config.json` from the same directory as the script. Raises `FileNotFoundError` if missing. |
-| `countdown` | `(seconds: int) → None` | Prints an in-place countdown to the terminal, giving you time to click into the fullscreen presentation window. |
-| `make_output_dir` | `(base: str, session: str) → Path` | Creates a timestamped session folder inside `base` (e.g. `slides_output/morning-standup_20250603_141200/`) and returns its `Path`. |
-| `slide_filename` | `(folder: Path, session: str, index: int, fmt: str) → Path` | Builds the full output path for a slide, e.g. `morning-standup_003.png`. |
-| `capture` | `(path: Path) → tuple[Image, ImageHash]` | Takes a full-screen screenshot, saves it to `path`, and returns both the PIL `Image` and its perceptual hash. |
-| `phash_distance` | `(a: ImageHash, b: ImageHash) → int` | Returns the Hamming distance between two perceptual hashes. `0` = identical; higher = more different. Used by watch mode to decide whether a real slide change occurred. |
-| `run_auto` | `(cfg: dict, output_folder: Path, session: str) → None` | Drives the slideshow: screenshot → `→` key → wait → repeat. Stops automatically on end-of-deck detection or `max_slides`. |
-| `run_watch` | `(cfg: dict, output_folder: Path, session: str) → None` | Passively monitors the screen. Fires a screenshot whenever `phash_distance` exceeds `change_threshold`, after waiting `settle_delay` for transitions to finish. |
-| `main` | `() → None` | Entry point. Loads config, prints the session summary, starts the stop-key listener thread, creates the output folder, and dispatches to `run_auto` or `run_watch`. |
+| Function | Description |
+|---|---|
+| `load_config()` | Reads and parses `config.json` from the same directory as the script. Raises `FileNotFoundError` with a clear message if the file is missing. |
+| `countdown(seconds)` | Prints an in-place countdown in the terminal so you have time to click into the fullscreen window before capture starts. |
+| `make_output_dir(base, session)` | Creates the timestamped session folder (e.g. `slides_output/morning-standup_20250603_141200/`) and returns its path. |
+| `slide_filename(folder, session, index, fmt)` | Builds the full path for a single slide, e.g. `morning-standup_003.png`. |
+| `capture(path)` | Takes a full-screen screenshot, saves it to disk, and returns the image alongside its perceptual hash. |
+| `phash_distance(a, b)` | Returns the Hamming distance between two perceptual hashes. `0` means identical; higher means more visually different. |
+| `run_auto(cfg, output_folder, session)` | Runs auto mode: screenshot, press right arrow, wait, repeat. Stops when end-of-deck is detected or `max_slides` is reached. |
+| `run_watch(cfg, output_folder, session)` | Runs watch mode: polls the screen continuously, captures when `phash_distance` exceeds `change_threshold`, waits `settle_delay` before saving. |
+| `main()` | Entry point. Loads config, starts the stop-key listener thread, creates the output folder, and hands off to `run_auto` or `run_watch`. |
 
 ---
 
-## Tips & Troubleshooting
+## Troubleshooting
 
-**Slides are being skipped (auto mode)**
-Increase `slide_delay`. If your deck has animations, `0.3s` may not be long enough for the slide to fully render before the next `→` is pressed.
+**Slides are being skipped in auto mode** — increase `slide_delay`. At `0.3s` the script might advance before an animated slide has finished rendering.
 
-**Watch mode is triggering on animated content / video**
-Raise `change_threshold` to `12`–`15`. This makes the detector less sensitive and only fires on large visual changes.
+**Watch mode is triggering too often** — raise `change_threshold`. Animated content or video embeds can look like a slide change at the default setting of `8`. Try `12`–`15`.
 
-**Watch mode is missing fast transitions**
-Lower `poll_interval` to `0.1`, and reduce `change_threshold` slightly.
+**Watch mode is missing transitions** — lower `poll_interval` to `0.1` and slightly reduce `change_threshold`.
 
-**Duplicate slides at the end (auto mode)**
-This shouldn't happen — the end-of-deck detector removes them automatically. If you do see extras, check that `MAX_IDENTICAL = 2` in the source is sufficient for your deck's behaviour.
+**macOS: the keyboard stop key does nothing** — check that your terminal has Accessibility permission in System Settings → Privacy & Security.
 
-**macOS: keyboard listener does nothing**
-Go to *System Settings → Privacy & Security → Accessibility* and enable your terminal app. You may also need *Screen Recording* permission for `pyautogui` to capture the screen.
-
-**Linux: `keyboard` raises a permissions error**
-Run with `sudo`, or add your user to the `input` group:
-```bash
-sudo usermod -aG input $USER
-# log out and back in
-```
+**Linux: permission error from `keyboard`** — run with `sudo`, or add yourself to the `input` group and re-login.
 
 ---
 
@@ -211,16 +180,15 @@ sudo usermod -aG input $USER
 
 ```
 slides-capture/
-├── slides_capture.py   # main script
-├── config.json         # all configuration lives here
+├── app.py
+├── config.json
 ├── README.md
 └── assets/
-    ├── slides.png      # Google Slides icon
-    └── powerpoint.png  # PowerPoint icon
+    ├── slides.png
+    └── powerpoint.png
 ```
 
----
 
 ## Licence
 
-MIT
+MIT — do whatever you want with it.
