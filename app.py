@@ -1,44 +1,60 @@
+#!/usr/bin/env python3
 """
-Google Slides Screenshot Tool
+Slides Screenshot Tool
 ------------------------------
-Put your presentation into fullscreen mode first (press F5 in Google Slides),
-then run this script. It will:
-  1. Count down so you can click into the presentation window
-  2. Screenshot each slide
-  3. Press the right arrow key to advance
-  4. Repeat until it detects the end or hits the slide limit
+Two modes, configured via config.json:
+
+  auto   — You control the slide transitions. The script clicks through for
+            you: press right-arrow, screenshot, repeat.
+
+  watch  — You (or someone else) controls the slideshow. The script watches
+            the screen with a perceptual hash and fires a screenshot whenever
+            it detects a real slide change (ignores cursor flickers / minor
+            redraws).
 
 Requirements:
-    pip install pyautogui pillow keyboard
+    pip install pyautogui pillow keyboard imagehash
+
+More info: https://github.com/nwsz/slides-cloner/
 """
 
+import hashlib
+import json
 import os
 import threading
 import time
-import hashlib
-import pyautogui
-import keyboard
-from PIL import Image
 from datetime import datetime
+from pathlib import Path
 
-# ── Configuration ────────────────────────────────────────────────────────────
+import imagehash
+import keyboard
+import pyautogui
+from PIL import Image
 
-OUTPUT_DIR   = "slides_output"  # folder where screenshots are saved
-SLIDE_DELAY  = 0.3              # seconds to wait after advancing — lower = faster
-                                # increase if slides have transitions/animations
+# ── Config loading ────────────────────────────────────────────────────────────
 
-COUNTDOWN    = 5                # seconds before capture starts
-MAX_SLIDES   = 40              # safety cap
-IMAGE_FORMAT = "png"            # "png" or "jpg"
-STOP_KEY     = "q"              # press this anytime to abort immediately
+CONFIG_PATH = Path(__file__).parent / "config.json"
 
-# ── Stop flag (set by background listener) ───────────────────────────────────
+
+def load_config() -> dict:
+    if not CONFIG_PATH.exists():
+        raise FileNotFoundError(
+            f"config.json not found at {CONFIG_PATH}\n"
+            "Create one next to this script — see the bundled config.json for options."
+        )
+    with CONFIG_PATH.open() as f:
+        return json.load(f)
+
+
+# ── Stop flag ─────────────────────────────────────────────────────────────────
 
 _stop = threading.Event()
 
-def _listen_for_stop():
-    keyboard.wait(STOP_KEY)
+
+def _listen_for_stop(key: str):
+    keyboard.wait(key)
     _stop.set()
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -50,94 +66,186 @@ def countdown(seconds: int):
     print("  Starting now!          ")
 
 
-def make_output_dir(base: str) -> str:
+def make_output_dir(base: str, session: str) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    folder = os.path.join(base, f"session_{timestamp}")
-    os.makedirs(folder, exist_ok=True)
+    folder = Path(base) / f"{session}_{timestamp}"
+    folder.mkdir(parents=True, exist_ok=True)
     return folder
 
 
-def take_screenshot(folder: str, slide_num: int) -> tuple[str, str]:
-    """Take a screenshot, save it, and return (filepath, md5_hash)."""
-    filename = os.path.join(folder, f"slide_{slide_num:03d}.{IMAGE_FORMAT}")
-    screenshot = pyautogui.screenshot()
-    screenshot.save(filename)
-    raw = screenshot.tobytes()
-    img_hash = hashlib.md5(raw).hexdigest()
-    return filename, img_hash
+def slide_filename(folder: Path, session: str, index: int, fmt: str) -> Path:
+    """e.g.  slides_output/my-talk_20250603_141200/my-talk_001.png"""
+    return folder / f"{session}_{index:03d}.{fmt}"
 
 
-def advance_slide():
-    pyautogui.press("right")
+def capture(path: Path) -> tuple[Image.Image, imagehash.ImageHash]:
+    """Screenshot → PIL image + perceptual hash."""
+    img = pyautogui.screenshot()
+    img.save(path)
+    phash = imagehash.phash(img)
+    return img, phash
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+def phash_distance(a: imagehash.ImageHash, b: imagehash.ImageHash) -> int:
+    """Hamming distance between two perceptual hashes (0 = identical)."""
+    return a - b
 
-def main():
-    print("=" * 55)
-    print("   Google Slides Screenshot Tool")
-    print("=" * 55)
-    print(f"  Output folder : {OUTPUT_DIR}/")
-    print(f"  Delay/slide   : {SLIDE_DELAY}s")
-    print(f"  Max slides    : {MAX_SLIDES}")
-    print(f"  Abort key     : [{STOP_KEY}]  (works instantly)")
-    print("=" * 55)
 
-    pyautogui.FAILSAFE = True  # move mouse to top-left corner to emergency-stop
+# ── Mode: auto ────────────────────────────────────────────────────────────────
 
-    # Start background thread that listens for Q at any moment
-    t = threading.Thread(target=_listen_for_stop, daemon=True)
-    t.start()
+def run_auto(cfg: dict, output_folder: Path, session: str):
+    """
+    Drives the slideshow itself. Takes a screenshot, presses right-arrow,
+    waits slide_delay, repeat. Stops when two consecutive frames hash the
+    same (end of deck) or MAX_SLIDES is reached.
+    """
+    c          = cfg["auto"]
+    delay      = float(c["slide_delay"])
+    max_slides = int(c["max_slides"])
+    fmt        = cfg["image_format"]
 
-    output_folder = make_output_dir(OUTPUT_DIR)
-    print(f"\n  Saving to: {output_folder}")
+    countdown(int(c["countdown"]))
 
-    countdown(COUNTDOWN)
-
-    slide_count      = 0
-    prev_hash        = None
+    slide_num        = 0
+    prev_phash       = None
     identical_streak = 0
-    MAX_IDENTICAL    = 2  # 2 identical frames in a row = end of deck
+    MAX_IDENTICAL    = 2  # identical perceptual hashes → end of deck
 
     try:
-        while slide_count < MAX_SLIDES:
-
+        while slide_num < max_slides:
             if _stop.is_set():
-                print(f"\n  [{STOP_KEY.upper()}] pressed — stopping.")
+                print(f"\n  [{cfg['stop_key'].upper()}] pressed — stopping.")
                 break
 
-            slide_count += 1
-            path, img_hash = take_screenshot(output_folder, slide_count)
-            print(f"  📸  Slide {slide_count:>3}  →  {os.path.basename(path)}")
+            slide_num += 1
+            path = slide_filename(output_folder, session, slide_num, fmt)
+            _, phash = capture(path)
+            print(f"  📸  Slide {slide_num:>3}  →  {path.name}")
 
-            # End-of-deck detection via hash comparison (much faster than pixel diff)
-            if img_hash == prev_hash:
+            if prev_phash is not None and phash_distance(phash, prev_phash) == 0:
                 identical_streak += 1
                 if identical_streak >= MAX_IDENTICAL:
-                    # Remove the duplicate(s)
-                    for extra in range(slide_count - identical_streak + 1, slide_count + 1):
-                        dup = os.path.join(output_folder, f"slide_{extra:03d}.{IMAGE_FORMAT}")
-                        if os.path.exists(dup):
-                            os.remove(dup)
-                    real_count = slide_count - identical_streak
-                    print(f"\n End of deck detected after {real_count} slide(s).")
-                    break
+                    # Delete duplicates captured at the end of the deck
+                    for extra in range(slide_num - identical_streak + 1, slide_num + 1):
+                        dup = slide_filename(output_folder, session, extra, fmt)
+                        if dup.exists():
+                            dup.unlink()
+                    real = slide_num - identical_streak
+                    print(f"\n  End of deck detected after {real} slide(s).")
+                    return
             else:
                 identical_streak = 0
 
-            prev_hash = img_hash
-
-            advance_slide()
-            time.sleep(SLIDE_DELAY)
+            prev_phash = phash
+            pyautogui.press("right")
+            time.sleep(delay)
 
         else:
-            print(f"\n Hit MAX_SLIDES ({MAX_SLIDES}). Raise it in the config if needed.")
+            print(f"\n  Hit max_slides ({max_slides}). Raise it in config.json if needed.")
 
     except KeyboardInterrupt:
         print("\n  Stopped with Ctrl+C.")
 
-    final_count = len([f for f in os.listdir(output_folder) if f.endswith(f".{IMAGE_FORMAT}")])
-    print(f"\n  Done! {final_count} slide(s) saved to:\n  {os.path.abspath(output_folder)}\n")
+
+# ── Mode: watch ───────────────────────────────────────────────────────────────
+
+def run_watch(cfg: dict, output_folder: Path, session: str):
+    """
+    Passive mode — polls the screen with a perceptual hash every poll_interval
+    seconds. When the hash distance exceeds change_threshold, waits settle_delay
+    then fires a screenshot (so we capture the slide after any transition finishes).
+
+    change_threshold  — how different the perceptual hash must be to count as a
+                        new slide. 8 is a good default:
+                          0–3  : noise / cursor movement
+                          4–10 : transition frames / partial redraws  ← threshold here
+                          10+  : definite new content
+    """
+    c          = cfg["watch"]
+    poll       = float(c["poll_interval"])
+    threshold  = int(c["change_threshold"])
+    settle     = float(c["settle_delay"])
+    max_slides = int(c["max_slides"])
+    fmt        = cfg["image_format"]
+
+    print(f"\n  Watch mode active — monitoring for slide changes.")
+    print(f"  Change threshold : {threshold}  |  Poll : {poll}s  |  Settle : {settle}s")
+    print(f"  Press [{cfg['stop_key'].upper()}] at any time to stop.\n")
+
+    # Capture the initial slide immediately
+    slide_num = 1
+    path      = slide_filename(output_folder, session, slide_num, fmt)
+    _, prev_phash = capture(path)
+    print(f"  📸  Slide {slide_num:>3}  →  {path.name}  (initial)")
+
+    try:
+        while slide_num < max_slides:
+            if _stop.is_set():
+                print(f"\n  [{cfg['stop_key'].upper()}] pressed — stopping.")
+                break
+
+            time.sleep(poll)
+
+            # Quick poll: grab screen and compute hash (don't save yet)
+            poll_img  = pyautogui.screenshot()
+            curr_hash = imagehash.phash(poll_img)
+            dist      = phash_distance(curr_hash, prev_phash)
+
+            if dist >= threshold:
+                # Wait for the transition to finish before saving
+                time.sleep(settle)
+
+                slide_num += 1
+                path = slide_filename(output_folder, session, slide_num, fmt)
+                _, settled_hash = capture(path)
+                print(f"  📸  Slide {slide_num:>3}  →  {path.name}  (Δ={dist})")
+                prev_phash = settled_hash
+
+        else:
+            print(f"\n Hit max_slides ({max_slides}). Raise it in config.json if needed.")
+
+    except KeyboardInterrupt:
+        print("\n  Stopped with Ctrl+C.")
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def main():
+    cfg     = load_config()
+    mode    = cfg.get("mode", "auto").lower()
+    session = cfg.get("session_name", "session").strip().replace(" ", "-")
+    fmt     = cfg.get("image_format", "png")
+    stop    = cfg.get("stop_key", "q")
+
+    if mode not in ("auto", "watch"):
+        raise ValueError(f"Unknown mode '{mode}' — set 'mode' to 'auto' or 'watch' in config.json")
+
+    print("=" * 55)
+    print("   Google Slides Screenshot Tool")
+    print("=" * 55)
+    print(f"  Mode          : {mode}")
+    print(f"  Session       : {session}")
+    print(f"  Output folder : {cfg['output_dir']}/")
+    print(f"  Image format  : {fmt}")
+    print(f"  Abort key     : [{stop.upper()}]")
+    print("=" * 55)
+
+    pyautogui.FAILSAFE = True  # move mouse to top-left corner to emergency-stop
+
+    # Background thread: listen for the stop key at any moment
+    t = threading.Thread(target=_listen_for_stop, args=(stop,), daemon=True)
+    t.start()
+
+    output_folder = make_output_dir(cfg["output_dir"], session)
+    print(f"\n  Saving to: {output_folder.resolve()}")
+
+    if mode == "auto":
+        run_auto(cfg, output_folder, session)
+    else:
+        run_watch(cfg, output_folder, session)
+
+    final = len(list(output_folder.glob(f"*.{fmt}")))
+    print(f"\n  Done! {final} slide(s) saved to:\n  {output_folder.resolve()}\n")
 
 
 if __name__ == "__main__":
