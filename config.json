@@ -1,0 +1,18 @@
+{
+  "session_name": "demo",
+  "output_dir": "auto",
+  "mode": "watch",
+  "auto": {
+    "slide_delay": 0.3,
+    "countdown": 5,
+    "max_slides": 40
+  },
+  "watch": {
+    "poll_interval": 0.2,
+    "change_threshold": 8,
+    "settle_delay": 0.3,
+    "max_slides": 200
+  },
+  "image_format": "png",
+  "stop_key": "q"
+}
