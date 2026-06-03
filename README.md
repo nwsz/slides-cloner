@@ -56,14 +56,14 @@ pip install pyautogui pillow keyboard imagehash
 
 1. Put your presentation into fullscreen (`F5` in Google Slides and PowerPoint, `⌘⇧F` in Keynote).
 2. Set `"mode": "auto"` in `config.json`.
-3. Run `python slides_capture.py`.
+3. Run `python app.py`.
 4. You have a few seconds (configurable via `countdown`) to click into the presentation window — then the script takes over.
 
 **Watch mode**
 
 1. Get the presentation visible and fullscreen.
 2. Set `"mode": "watch"` in `config.json`.
-3. Run `python slides_capture.py`.
+3. Run `python app.py`.
 4. The script captures the first slide immediately, then monitors quietly. Every real slide change triggers a capture.
 5. Press `Q` (or your configured `stop_key`) when done.
 
