@@ -41,7 +41,7 @@ pip install pyautogui pillow keyboard imagehash
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/slides-capture.git
+git clone https://github.com/nwsz/slides-cloner.git
 cd slides-capture
 pip install pyautogui pillow keyboard imagehash
 ```
@@ -179,7 +179,7 @@ Everything is in `config.json`. You never need to edit the Python file.
 ## Project structure
 
 ```
-slides-capture/
+slides-cloner/
 ├── app.py
 ├── config.json
 ├── README.md
